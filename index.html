@@ -15,16 +15,18 @@
     <h2 id="ftitle">Enter shift production</h2>
     <div class="grid">
       <div><label for="log_date">Date</label><input type="date" id="log_date" required></div>
-      <div><label for="shift">Shift</label>
+      <div class="full" id="modebox"><label for="mode">Entry type</label>
+        <select id="mode"><option value="shift">One shift</option><option value="day">Whole day (split equally into shifts A, B and C)</option></select></div>
+      <div id="shiftbox"><label for="shift">Shift</label>
         <select id="shift" required><option value="A">A</option><option value="B">B</option><option value="C">C</option></select></div>
 
       <div class="full sect">Coal</div>
-      <div><label for="coal_target">Coal Target (T)</label><input type="number" id="coal_target" min="0" step="any" inputmode="decimal" required></div>
-      <div><label for="coal_actual">Coal Actual (T)</label><input type="number" id="coal_actual" min="0" step="any" inputmode="decimal" required></div>
+      <div><label for="coal_target" class="lb">Coal Target (T)</label><input type="number" id="coal_target" min="0" step="any" inputmode="decimal" required></div>
+      <div><label for="coal_actual" class="lb">Coal Actual (T)</label><input type="number" id="coal_actual" min="0" step="any" inputmode="decimal" required></div>
 
       <div class="full sect">Overburden (OB)</div>
-      <div><label for="ob_target">OB Target (m³)</label><input type="number" id="ob_target" min="0" step="any" inputmode="decimal" required></div>
-      <div><label for="ob_actual">OB Actual (m³)</label><input type="number" id="ob_actual" min="0" step="any" inputmode="decimal" required></div>
+      <div><label for="ob_target" class="lb">OB Target (m³)</label><input type="number" id="ob_target" min="0" step="any" inputmode="decimal" required></div>
+      <div><label for="ob_actual" class="lb">OB Actual (m³)</label><input type="number" id="ob_actual" min="0" step="any" inputmode="decimal" required></div>
 
       <div class="full">
         <div class="calc" id="calc">
@@ -34,6 +36,8 @@
           <div><span>OB achievement</span><b id="c_oa">-</b></div>
         </div>
       </div>
+
+      <div class="full" id="splitbox" style="display:none"><div class="msg info" id="splittxt" style="margin:0"></div></div>
 
       <div class="full sect">Shortfall details</div>
       <div><label for="shortfall_reason">Shortfall Reason <span class="hint">(needed if below target)</span></label>
@@ -85,6 +89,34 @@ function showCalc() {
 }
 ["coal_target","coal_actual","ob_target","ob_actual"].forEach((id) => $(id).addEventListener("input", showCalc));
 
+/* ---- Whole-day mode: one daily figure is split equally into shifts A, B, C ---- */
+const SHIFTS = ["A", "B", "C"];
+function splitAmt(total) {
+  const a = Math.round(total / 3 * 100) / 100;
+  return [a, a, Math.round((total - 2 * a) * 100) / 100];
+}
+function dayMode() { return !editId && $("mode").value === "day"; }
+function updateMode() {
+  const d = dayMode();
+  $("shiftbox").style.display = d ? "none" : "block";
+  $("splitbox").style.display = d ? "block" : "none";
+  const p = d ? "Daily " : "";
+  [["coal_target","Coal Target (T)"],["coal_actual","Coal Actual (T)"],["ob_target","OB Target (m³)"],["ob_actual","OB Actual (m³)"]]
+    .forEach((x) => { document.querySelector('label[for="' + x[0] + '"]').textContent = p + x[1]; });
+  $("save").textContent = d ? "Save whole day (A + B + C)" : (editId ? "Save changes" : "Save shift entry");
+  $("delay_hours").previousElementSibling.textContent = d ? "Delay Hours (whole day)" : "Delay Hours";
+  showSplit();
+}
+function showSplit() {
+  if (!dayMode()) return;
+  const ct = splitAmt(num($("coal_target").value)), ca = splitAmt(num($("coal_actual").value));
+  const ot = splitAmt(num($("ob_target").value)), oa = splitAmt(num($("ob_actual").value));
+  $("splittxt").innerHTML = "Each shift gets one third. Shift A: coal " + fmt(ca[0], 2) + " of " + fmt(ct[0], 2) + " T, OB " + fmt(oa[0], 2) + " of " + fmt(ot[0], 2) +
+    " m³. Shifts B and C get the same (the last shift takes any rounding). Every shift will show the same achievement %. Use One shift for real shift-wise numbers.";
+}
+$("mode").addEventListener("change", updateMode);
+["coal_target","coal_actual","ob_target","ob_actual"].forEach((id) => $(id).addEventListener("input", showSplit));
+
 function readForm() {
   return {
     log_date: $("log_date").value, shift: $("shift").value, location: LOCATION,
@@ -108,6 +140,7 @@ async function loadForEdit() {
   ["log_date","shift","coal_target","coal_actual","ob_target","ob_actual","delay_hours","remarks","corrective_action","urgency","status"]
     .forEach((k) => { $(k).value = x[k] == null ? "" : x[k]; });
   $("shortfall_reason").value = x.shortfall_reason || "";
+  $("modebox").style.display = "none"; updateMode();
   $("ftitle").textContent = "Edit record: " + x.log_date + ", shift " + x.shift;
   $("save").textContent = "Save changes";
   $("cancel").style.display = "inline-block";
@@ -127,8 +160,25 @@ $("f").addEventListener("submit", async (ev) => {
   $("save").disabled = true;
   try {
     let res;
+    let savedTxt = "shift " + row.shift + " on " + row.log_date;
     if (editId) {
       res = await db.from("production_log").update(row).eq("id", editId);
+    } else if (dayMode()) {
+      const parts = {};
+      ["coal_target","coal_actual","ob_target","ob_actual","delay_hours"].forEach((k) => { parts[k] = splitAmt(row[k]); });
+      const found = await db.from("production_log").select("id,shift").eq("log_date", row.log_date);
+      if (found.error) throw found.error;
+      if (found.data.length && !confirm(row.log_date + " already has entries (or removed ones) for shift(s) " + found.data.map((x) => x.shift).join(", ") + ". Replace them with these numbers?")) {
+        $("save").disabled = false; return;
+      }
+      for (let i = 0; i < 3; i++) {
+        const r3 = Object.assign({}, row, {shift: SHIFTS[i]});
+        Object.keys(parts).forEach((k) => { r3[k] = parts[k][i]; });
+        const old = found.data.find((x) => x.shift === SHIFTS[i]);
+        res = old ? await db.from("production_log").update(r3).eq("id", old.id) : await db.from("production_log").insert(r3);
+        if (res.error) throw res.error;
+      }
+      savedTxt = "whole day " + row.log_date + " (shifts A, B and C)";
     } else {
       const found = await db.from("production_log").select("id").eq("log_date", row.log_date).eq("shift", row.shift);
       if (found.error) throw found.error;
@@ -142,12 +192,12 @@ $("f").addEventListener("submit", async (ev) => {
       }
     }
     if (res.error) throw res.error;
-    showMsg("msg", "ok", "Saved: shift " + row.shift + " on " + row.log_date + ".");
+    showMsg("msg", "ok", "Saved: " + savedTxt + ".");
     if (editId) { setTimeout(() => { location.href = "records.html"; }, 900); return; }
     ["coal_target","coal_actual","ob_target","ob_actual","remarks","corrective_action"].forEach((id) => { $(id).value = ""; });
     $("shortfall_reason").value = ""; $("delay_hours").value = 0;
     $("urgency").value = "Low"; $("status").value = "Open";
-    showCalc(); loadRecent();
+    showCalc(); showSplit(); loadRecent();
     window.scrollTo({top: 0, behavior: "smooth"});
   } catch (e) {
     const dup = e && e.code === "23505" ? " Another entry already exists for that date and shift." : "";
@@ -179,6 +229,7 @@ async function loadRecent() {
     else showMsg("msg", "ok", "Status updated to " + sel.value + ".");
   }));
 }
+updateMode();
 loadForEdit();
 loadRecent();
 </script>
