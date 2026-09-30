@@ -103,7 +103,8 @@ function renderHeader(active) {
   document.getElementById("hdr").innerHTML =
     '<div class="in"><div class="brand"><div><h1>Daily Coal &amp; OB Production</h1>' +
     '<small>' + LOCATION + ', Mahanadi Coalfields Limited (sample data only)</small></div>' +
-    '<button type="button" id="themebtn" class="ghost" aria-label="Switch dark or light mode"></button></div>' +
+    '<div class="hright"><button type="button" id="themebtn" class="ghost" aria-label="Switch dark or light mode"></button>' +
+    '<img src="logo.jpg" alt="MCL logo" class="logo" onerror="this.style.display=\'none\'"></div></div>' +
     '<nav class="menu">' + links.map(function (l) {
       return '<a href="' + l[0] + '"' + (l[0] === active ? ' class="on"' : '') + '>' + l[1] + '</a>';
     }).join("") + '</nav></div>';
