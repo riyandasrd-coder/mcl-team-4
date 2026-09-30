@@ -76,10 +76,11 @@
 - Problem: Track shift-wise and daily Coal & OB production, compare Actual vs Target, watch cumulative production and record why production fell short.
 - Who records / who decides: Shift in-charge records each shift; the Project Officer / Manager reviews the dashboard.
 - Table name and columns: production_log - id, created_at, log_date, shift (A/B/C), location, coal_target, coal_actual, ob_target, ob_actual, shortfall_reason, delay_hours, remarks, corrective_action, urgency, status. One row per date + shift (unique).
-- Pages: index.html = entry page; dashboard.html = dashboard
+- Pages: index.html = entry page (also edits a record via ?id=...); dashboard.html = dashboard; records.html = list, edit and remove records
 
 ## Progress Log (newest entry at the bottom)
 - Phase 0 (starter): placeholder index.html, config.js without settings and
   this CLAUDE.md. Next: Phase 1 - the table and the entry page.
 - Phase 1 (Claude): built database/01-setup.sql (table production_log), index.html (shift entry form with live calculations, recent entries, status change), dashboard.html (period filter, KPI tiles, 6 charts, daily A+B+C tables with cumulative Target vs Actual, shortfall reasons summary and log), style.css and app.js (shared helpers). Works: code written but NOT tested on the live site. Known problems: config.js still has placeholders; Data Keeper must run 01-setup.sql first. Next: Data Keeper runs SQL, fills config.js, tests entry + dashboard on the live site.
 - Sample data: added database/02-sample-data.sql (138 made-up rows, 16 Aug - 30 Sep 2026, remarks start with SAMPLE). Data Keeper runs it after 01-setup.sql.
+- Phase 2 (Claude): full dashboard. dashboard.html now has filters (period, shift, Coal/OB), management summary, 10 KPI cards, shift-wise table, status icons (green 100%+, yellow 90-99.9%, red below 90%), 7 charts (shift bars, daily lines, cumulative lines, reason donut), MTD/YTD table, shortfall analysis, Export to Excel (SheetJS from jsDelivr, CSV fallback) and Print/Save as PDF. Added records.html (edit / remove), dark-light mode, shared header in app.js. "Remove" hides a record (column is_void) and does NOT delete it, because our rules forbid deleting. NEW SQL: database/03-add-remove-flag.sql - Data Keeper must run it once, or the pages show an error mentioning is_void. Tested only with fake data in a test browser, NOT on the live site. Next: run 03, test on live site.

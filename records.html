@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Records - Bhubaneswari OCP Production</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header id="hdr" class="top"></header>
+<main>
+  <div id="msg" class="msg" style="display:none"></div>
+  <div class="card">
+    <h2>Find records</h2>
+    <div class="grid g3">
+      <div><label for="from">From</label><input type="date" id="from"></div>
+      <div><label for="to">To</label><input type="date" id="to"></div>
+      <div><label for="shift">Shift</label>
+        <select id="shift"><option value="">All shifts</option><option>A</option><option>B</option><option>C</option></select></div>
+      <div class="full"><button id="go">Show records</button></div>
+    </div>
+    <p class="hint">"Remove" hides a record from all pages and reports. It is not erased from the database.</p>
+  </div>
+  <div class="card"><h2 id="count">Records</h2><div class="tw" id="tbl">Loading...</div></div>
+</main>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="config.js"></script>
+<script src="app.js"></script>
+<script>
+renderHeader("records.html");
+const db = makeClient();
+const $ = (id) => document.getElementById(id);
+
+async function start() {
+  if (!db) { $("tbl").textContent = NOT_READY; return; }
+  const a = await db.from("production_log").select("log_date").eq("is_void", false).order("log_date", {ascending: false}).limit(1);
+  const last = a.data && a.data.length ? a.data[0].log_date : isoDate(new Date());
+  $("to").value = last; $("from").value = addDays(last, -13);
+  load();
+}
+$("go").addEventListener("click", load);
+
+async function load() {
+  $("msg").style.display = "none";
+  if (!db) return showMsg("msg", "err", NOT_READY);
+  $("tbl").textContent = "Loading...";
+  let q = db.from("production_log").select("*").eq("is_void", false)
+    .gte("log_date", $("from").value).lte("log_date", $("to").value)
+    .order("log_date", {ascending: false}).order("shift", {ascending: true}).limit(500);
+  if ($("shift").value) q = q.eq("shift", $("shift").value);
+  const r = await q;
+  if (r.error) { $("tbl").textContent = ""; return showMsg("msg", "err", "Sorry, the records could not be loaded. Please send this error text to the team: " + errText(r.error) + NEED_03); }
+  $("count").textContent = r.data.length + " record(s)" + (r.data.length === 500 ? " (showing the first 500)" : "");
+  if (!r.data.length) { $("tbl").textContent = "No records for these dates."; return; }
+  $("tbl").innerHTML = '<table><thead><tr><th>Date</th><th>Shift</th><th>Coal Target</th><th>Coal Actual</th><th>Coal Ach.</th><th>OB Target</th><th>OB Actual</th><th>OB Ach.</th><th class="l">Reason</th><th>Delay h</th><th class="l">Status</th><th></th></tr></thead><tbody>' +
+    r.data.map((x) => '<tr><td>' + esc(x.log_date) + '</td><td>' + esc(x.shift) + '</td><td>' + fmt(x.coal_target) + '</td><td>' + fmt(x.coal_actual) +
+      '</td><td>' + badge(pct(num(x.coal_actual), num(x.coal_target))) + '</td><td>' + fmt(x.ob_target) + '</td><td>' + fmt(x.ob_actual) +
+      '</td><td>' + badge(pct(num(x.ob_actual), num(x.ob_target))) + '</td><td class="l">' + esc(x.shortfall_reason || "-") + '</td><td>' + fmt(x.delay_hours, 2) +
+      '</td><td class="l">' + esc(x.status) + '</td><td><a class="btn alt sm" href="index.html?id=' + esc(x.id) + '">Edit</a> ' +
+      '<button class="sm danger rm" data-id="' + esc(x.id) + '" data-t="' + esc(x.log_date) + ' shift ' + esc(x.shift) + '">Remove</button></td></tr>').join("") +
+    '</tbody></table>';
+  document.querySelectorAll(".rm").forEach((b) => b.addEventListener("click", async () => {
+    if (!confirm("Remove the record for " + b.dataset.t + "? It will be hidden from all reports.")) return;
+    const u = await db.from("production_log").update({is_void: true}).eq("id", b.dataset.id);
+    if (u.error) return showMsg("msg", "err", "Could not remove the record. Error: " + errText(u.error));
+    showMsg("msg", "ok", "Removed " + b.dataset.t + ".");
+    load();
+  }));
+}
+start();
+</script>
+</body>
+</html>

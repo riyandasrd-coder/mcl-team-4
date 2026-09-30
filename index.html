@@ -7,16 +7,12 @@
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
-<header class="top"><div class="in">
-  <h1>Daily Coal &amp; OB Production</h1>
-  <small>Bhubaneswari OCP, Mahanadi Coalfields Limited (sample data only)</small>
-  <nav class="menu"><a class="on" href="index.html">Shift Entry</a><a href="dashboard.html">Dashboard</a></nav>
-</div></header>
+<header id="hdr" class="top"></header>
 <main>
   <div id="msg" class="msg" style="display:none"></div>
 
   <form id="f" class="card" autocomplete="off">
-    <h2>Enter shift production</h2>
+    <h2 id="ftitle">Enter shift production</h2>
     <div class="grid">
       <div><label for="log_date">Date</label><input type="date" id="log_date" required></div>
       <div><label for="shift">Shift</label>
@@ -49,7 +45,7 @@
         <select id="urgency"><option>Low</option><option>Medium</option><option>High</option></select></div>
       <div><label for="status">Status</label>
         <select id="status"><option>Open</option><option>In progress</option><option>Resolved</option></select></div>
-      <div class="full"><button type="submit" id="save">Save shift entry</button></div>
+      <div class="full"><div class="actions"><button type="submit" id="save">Save shift entry</button><a class="btn alt" id="cancel" href="index.html" style="display:none">Cancel edit</a></div></div>
     </div>
   </form>
 
@@ -63,12 +59,18 @@
 <script src="config.js"></script>
 <script src="app.js"></script>
 <script>
+renderHeader("index.html");
 const db = makeClient();
 const $ = (id) => document.getElementById(id);
-const fields = ["log_date","shift","coal_target","coal_actual","ob_target","ob_actual","shortfall_reason","delay_hours","remarks","corrective_action","urgency","status"];
+const editId = new URLSearchParams(location.search).get("id");
 
-$("shortfall_reason").innerHTML = '<option value="">-- none --</option>' +
-  REASONS.map((r) => '<option>' + esc(r) + '</option>').join("");
+function reasonOptions(extra) {
+  const list = REASONS.slice();
+  if (extra && list.indexOf(extra) === -1) list.push(extra);
+  $("shortfall_reason").innerHTML = '<option value="">-- none --</option>' +
+    list.map((r) => '<option>' + esc(r) + '</option>').join("");
+}
+reasonOptions();
 $("log_date").value = isoDate(new Date());
 
 function showCalc() {
@@ -92,8 +94,24 @@ function readForm() {
     delay_hours: num($("delay_hours").value),
     remarks: $("remarks").value.trim() || null,
     corrective_action: $("corrective_action").value.trim() || null,
-    urgency: $("urgency").value, status: $("status").value
+    urgency: $("urgency").value, status: $("status").value, is_void: false
   };
+}
+
+async function loadForEdit() {
+  if (!editId) return;
+  if (!db) return showMsg("msg", "err", NOT_READY);
+  const r = await db.from("production_log").select("*").eq("id", editId).maybeSingle();
+  if (r.error || !r.data) return showMsg("msg", "err", "Could not open that record for editing. " + (r.error ? "Error: " + errText(r.error) : "It was not found."));
+  const x = r.data;
+  reasonOptions(x.shortfall_reason);
+  ["log_date","shift","coal_target","coal_actual","ob_target","ob_actual","delay_hours","remarks","corrective_action","urgency","status"]
+    .forEach((k) => { $(k).value = x[k] == null ? "" : x[k]; });
+  $("shortfall_reason").value = x.shortfall_reason || "";
+  $("ftitle").textContent = "Edit record: " + x.log_date + ", shift " + x.shift;
+  $("save").textContent = "Save changes";
+  $("cancel").style.display = "inline-block";
+  showCalc();
 }
 
 $("f").addEventListener("submit", async (ev) => {
@@ -108,26 +126,32 @@ $("f").addEventListener("submit", async (ev) => {
   }
   $("save").disabled = true;
   try {
-    const found = await db.from("production_log").select("id").eq("log_date", row.log_date).eq("shift", row.shift);
-    if (found.error) throw found.error;
     let res;
-    if (found.data.length) {
-      if (!confirm("Shift " + row.shift + " on " + row.log_date + " already has an entry. Replace it with these numbers?")) {
-        $("save").disabled = false; return;
-      }
-      res = await db.from("production_log").update(row).eq("id", found.data[0].id);
+    if (editId) {
+      res = await db.from("production_log").update(row).eq("id", editId);
     } else {
-      res = await db.from("production_log").insert(row);
+      const found = await db.from("production_log").select("id").eq("log_date", row.log_date).eq("shift", row.shift);
+      if (found.error) throw found.error;
+      if (found.data.length) {
+        if (!confirm("Shift " + row.shift + " on " + row.log_date + " already has an entry (or a removed one). Replace it with these numbers?")) {
+          $("save").disabled = false; return;
+        }
+        res = await db.from("production_log").update(row).eq("id", found.data[0].id);
+      } else {
+        res = await db.from("production_log").insert(row);
+      }
     }
     if (res.error) throw res.error;
     showMsg("msg", "ok", "Saved: shift " + row.shift + " on " + row.log_date + ".");
+    if (editId) { setTimeout(() => { location.href = "records.html"; }, 900); return; }
     ["coal_target","coal_actual","ob_target","ob_actual","remarks","corrective_action"].forEach((id) => { $(id).value = ""; });
     $("shortfall_reason").value = ""; $("delay_hours").value = 0;
     $("urgency").value = "Low"; $("status").value = "Open";
     showCalc(); loadRecent();
     window.scrollTo({top: 0, behavior: "smooth"});
   } catch (e) {
-    showMsg("msg", "err", "Sorry, the entry could not be saved. Please send this error text to the team: " + errText(e));
+    const dup = e && e.code === "23505" ? " Another entry already exists for that date and shift." : "";
+    showMsg("msg", "err", "Sorry, the entry could not be saved." + dup + " Please send this error text to the team: " + errText(e) + NEED_03);
   }
   $("save").disabled = false;
 });
@@ -135,26 +159,27 @@ $("f").addEventListener("submit", async (ev) => {
 async function loadRecent() {
   const box = $("recent");
   if (!db) { box.textContent = NOT_READY; return; }
-  const r = await db.from("production_log").select("*").order("log_date", {ascending: false}).order("shift", {ascending: false}).limit(15);
-  if (r.error) { box.innerHTML = '<div class="msg err">Could not load entries. Error: ' + esc(errText(r.error)) + '</div>'; return; }
+  const r = await db.from("production_log").select("*").eq("is_void", false).order("log_date", {ascending: false}).order("shift", {ascending: false}).limit(15);
+  if (r.error) { box.innerHTML = '<div class="msg err">Could not load entries. Error: ' + esc(errText(r.error)) + esc(NEED_03) + '</div>'; return; }
   if (!r.data.length) { box.textContent = "No entries yet. Add the first shift above."; return; }
   box.innerHTML = r.data.map((x) => {
     const cp = pct(x.coal_actual, x.coal_target), op = pct(x.ob_actual, x.ob_target);
     return '<div class="rec"><div class="h"><span>' + esc(x.log_date) + ' - Shift ' + esc(x.shift) + '</span>' +
       '<span class="tag ' + esc(x.urgency) + '">' + esc(x.urgency) + '</span></div>' +
-      '<p>Coal: ' + fmt(x.coal_actual) + ' / ' + fmt(x.coal_target) + ' T (' + pctText(cp) + ')<br>' +
-      'OB: ' + fmt(x.ob_actual) + ' / ' + fmt(x.ob_target) + ' m³ (' + pctText(op) + ')</p>' +
+      '<p>Coal: ' + fmt(x.coal_actual) + ' / ' + fmt(x.coal_target) + ' T ' + badge(cp) + '<br>' +
+      'OB: ' + fmt(x.ob_actual) + ' / ' + fmt(x.ob_target) + ' m³ ' + badge(op) + '</p>' +
       (x.shortfall_reason ? '<p>Reason: ' + esc(x.shortfall_reason) + ' (' + fmt(x.delay_hours, 2) + ' h delay)</p>' : '') +
-      '<p><label>Status</label><select data-id="' + esc(x.id) + '" class="st">' +
+      '<p><label>Status</label><select data-id="' + esc(x.id) + '" class="st-sel">' +
       ["Open","In progress","Resolved"].map((s) => '<option' + (s === x.status ? ' selected' : '') + '>' + s + '</option>').join("") +
-      '</select></p></div>';
+      '</select></p><p><a class="btn alt sm" href="index.html?id=' + esc(x.id) + '">Edit this record</a></p></div>';
   }).join("");
-  box.querySelectorAll(".st").forEach((sel) => sel.addEventListener("change", async () => {
+  box.querySelectorAll(".st-sel").forEach((sel) => sel.addEventListener("change", async () => {
     const u = await db.from("production_log").update({status: sel.value}).eq("id", sel.dataset.id);
     if (u.error) showMsg("msg", "err", "Could not change status. Error: " + errText(u.error));
     else showMsg("msg", "ok", "Status updated to " + sel.value + ".");
   }));
 }
+loadForEdit();
 loadRecent();
 </script>
 </body>
