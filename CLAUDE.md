@@ -82,3 +82,4 @@
 - Phase 0 (starter): placeholder index.html, config.js without settings and
   this CLAUDE.md. Next: Phase 1 - the table and the entry page.
 - Phase 1 (Claude): built database/01-setup.sql (table production_log), index.html (shift entry form with live calculations, recent entries, status change), dashboard.html (period filter, KPI tiles, 6 charts, daily A+B+C tables with cumulative Target vs Actual, shortfall reasons summary and log), style.css and app.js (shared helpers). Works: code written but NOT tested on the live site. Known problems: config.js still has placeholders; Data Keeper must run 01-setup.sql first. Next: Data Keeper runs SQL, fills config.js, tests entry + dashboard on the live site.
+- Sample data: added database/02-sample-data.sql (138 made-up rows, 16 Aug - 30 Sep 2026, remarks start with SAMPLE). Data Keeper runs it after 01-setup.sql.
