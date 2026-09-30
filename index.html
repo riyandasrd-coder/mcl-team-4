@@ -3,30 +3,159 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Team tool - coming soon</title>
-  <style>
-    body { font-family: Arial, sans-serif; color: #1f2937;
-           max-width: 640px; margin: 40px auto; padding: 0 16px; }
-    .box { border: 2px dashed #c2410c; border-radius: 12px; padding: 20px; }
-    .ok { color: #047857; font-weight: bold; }
-    .warn { color: #b45309; font-weight: bold; }
-  </style>
+  <title>Shift Entry - Bhubaneswari OCP Production</title>
+  <link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <div class="box">
-    <h1>Our team's tool is coming soon</h1>
-    <p>This placeholder page will be replaced in Phase 1 of the workshop.</p>
-    <p id="config-check">Checking database settings...</p>
+<header class="top"><div class="in">
+  <h1>Daily Coal &amp; OB Production</h1>
+  <small>Bhubaneswari OCP, Mahanadi Coalfields Limited (sample data only)</small>
+  <nav class="menu"><a class="on" href="index.html">Shift Entry</a><a href="dashboard.html">Dashboard</a></nav>
+</div></header>
+<main>
+  <div id="msg" class="msg" style="display:none"></div>
+
+  <form id="f" class="card" autocomplete="off">
+    <h2>Enter shift production</h2>
+    <div class="grid">
+      <div><label for="log_date">Date</label><input type="date" id="log_date" required></div>
+      <div><label for="shift">Shift</label>
+        <select id="shift" required><option value="A">A</option><option value="B">B</option><option value="C">C</option></select></div>
+
+      <div class="full sect">Coal</div>
+      <div><label for="coal_target">Coal Target (T)</label><input type="number" id="coal_target" min="0" step="any" inputmode="decimal" required></div>
+      <div><label for="coal_actual">Coal Actual (T)</label><input type="number" id="coal_actual" min="0" step="any" inputmode="decimal" required></div>
+
+      <div class="full sect">Overburden (OB)</div>
+      <div><label for="ob_target">OB Target (m³)</label><input type="number" id="ob_target" min="0" step="any" inputmode="decimal" required></div>
+      <div><label for="ob_actual">OB Actual (m³)</label><input type="number" id="ob_actual" min="0" step="any" inputmode="decimal" required></div>
+
+      <div class="full">
+        <div class="calc" id="calc">
+          <div><span>Coal shortfall (T)</span><b id="c_cs">-</b></div>
+          <div><span>Coal achievement</span><b id="c_ca">-</b></div>
+          <div><span>OB shortfall (m³)</span><b id="c_os">-</b></div>
+          <div><span>OB achievement</span><b id="c_oa">-</b></div>
+        </div>
+      </div>
+
+      <div class="full sect">Shortfall details</div>
+      <div><label for="shortfall_reason">Shortfall Reason <span class="hint">(needed if below target)</span></label>
+        <select id="shortfall_reason"></select></div>
+      <div><label for="delay_hours">Delay Hours</label><input type="number" id="delay_hours" min="0" max="24" step="0.25" value="0" inputmode="decimal"></div>
+      <div class="full"><label for="remarks">Detailed Remarks</label><textarea id="remarks"></textarea></div>
+      <div class="full"><label for="corrective_action">Corrective Action</label><textarea id="corrective_action"></textarea></div>
+      <div><label for="urgency">Urgency</label>
+        <select id="urgency"><option>Low</option><option>Medium</option><option>High</option></select></div>
+      <div><label for="status">Status</label>
+        <select id="status"><option>Open</option><option>In progress</option><option>Resolved</option></select></div>
+      <div class="full"><button type="submit" id="save">Save shift entry</button></div>
+    </div>
+  </form>
+
+  <div class="card">
+    <h2>Recent entries</h2>
+    <div id="recent">Loading...</div>
   </div>
-  <script src="config.js"></script>
-  <script>
-    var el = document.getElementById("config-check");
-    var url = window.SUPABASE_URL || "";
-    var key = window.SUPABASE_PUBLISHABLE_KEY || "";
-    var ready = url.indexOf("PASTE") === -1 && key.indexOf("sb_publishable_") === 0;
-    el.textContent = ready ? "Database settings: filled in \u2713"
-                           : "Database settings: not filled in yet (this is normal before Phase 1)";
-    el.className = ready ? "ok" : "warn";
-  </script>
+</main>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="config.js"></script>
+<script src="app.js"></script>
+<script>
+const db = makeClient();
+const $ = (id) => document.getElementById(id);
+const fields = ["log_date","shift","coal_target","coal_actual","ob_target","ob_actual","shortfall_reason","delay_hours","remarks","corrective_action","urgency","status"];
+
+$("shortfall_reason").innerHTML = '<option value="">-- none --</option>' +
+  REASONS.map((r) => '<option>' + esc(r) + '</option>').join("");
+$("log_date").value = isoDate(new Date());
+
+function showCalc() {
+  const ct = num($("coal_target").value), ca = num($("coal_actual").value);
+  const ot = num($("ob_target").value), oa = num($("ob_actual").value);
+  const has = (id) => $(id).value !== "";
+  const paint = (id, v, ok) => { $(id).textContent = ok ? v : "-"; };
+  paint("c_cs", fmt(ct - ca, 1), has("coal_target") && has("coal_actual"));
+  paint("c_ca", pctText(pct(ca, ct)), has("coal_target") && has("coal_actual"));
+  paint("c_os", fmt(ot - oa, 1), has("ob_target") && has("ob_actual"));
+  paint("c_oa", pctText(pct(oa, ot)), has("ob_target") && has("ob_actual"));
+}
+["coal_target","coal_actual","ob_target","ob_actual"].forEach((id) => $(id).addEventListener("input", showCalc));
+
+function readForm() {
+  return {
+    log_date: $("log_date").value, shift: $("shift").value, location: LOCATION,
+    coal_target: num($("coal_target").value), coal_actual: num($("coal_actual").value),
+    ob_target: num($("ob_target").value), ob_actual: num($("ob_actual").value),
+    shortfall_reason: $("shortfall_reason").value || null,
+    delay_hours: num($("delay_hours").value),
+    remarks: $("remarks").value.trim() || null,
+    corrective_action: $("corrective_action").value.trim() || null,
+    urgency: $("urgency").value, status: $("status").value
+  };
+}
+
+$("f").addEventListener("submit", async (ev) => {
+  ev.preventDefault();
+  if (!db) return showMsg("msg", "err", NOT_READY);
+  const row = readForm();
+  const below = row.coal_actual < row.coal_target || row.ob_actual < row.ob_target;
+  if (below && !row.shortfall_reason) {
+    showMsg("msg", "info", "Actual is below target. Please choose a Shortfall Reason.");
+    $("shortfall_reason").focus();
+    return;
+  }
+  $("save").disabled = true;
+  try {
+    const found = await db.from("production_log").select("id").eq("log_date", row.log_date).eq("shift", row.shift);
+    if (found.error) throw found.error;
+    let res;
+    if (found.data.length) {
+      if (!confirm("Shift " + row.shift + " on " + row.log_date + " already has an entry. Replace it with these numbers?")) {
+        $("save").disabled = false; return;
+      }
+      res = await db.from("production_log").update(row).eq("id", found.data[0].id);
+    } else {
+      res = await db.from("production_log").insert(row);
+    }
+    if (res.error) throw res.error;
+    showMsg("msg", "ok", "Saved: shift " + row.shift + " on " + row.log_date + ".");
+    ["coal_target","coal_actual","ob_target","ob_actual","remarks","corrective_action"].forEach((id) => { $(id).value = ""; });
+    $("shortfall_reason").value = ""; $("delay_hours").value = 0;
+    $("urgency").value = "Low"; $("status").value = "Open";
+    showCalc(); loadRecent();
+    window.scrollTo({top: 0, behavior: "smooth"});
+  } catch (e) {
+    showMsg("msg", "err", "Sorry, the entry could not be saved. Please send this error text to the team: " + errText(e));
+  }
+  $("save").disabled = false;
+});
+
+async function loadRecent() {
+  const box = $("recent");
+  if (!db) { box.textContent = NOT_READY; return; }
+  const r = await db.from("production_log").select("*").order("log_date", {ascending: false}).order("shift", {ascending: false}).limit(15);
+  if (r.error) { box.innerHTML = '<div class="msg err">Could not load entries. Error: ' + esc(errText(r.error)) + '</div>'; return; }
+  if (!r.data.length) { box.textContent = "No entries yet. Add the first shift above."; return; }
+  box.innerHTML = r.data.map((x) => {
+    const cp = pct(x.coal_actual, x.coal_target), op = pct(x.ob_actual, x.ob_target);
+    return '<div class="rec"><div class="h"><span>' + esc(x.log_date) + ' - Shift ' + esc(x.shift) + '</span>' +
+      '<span class="tag ' + esc(x.urgency) + '">' + esc(x.urgency) + '</span></div>' +
+      '<p>Coal: ' + fmt(x.coal_actual) + ' / ' + fmt(x.coal_target) + ' T (' + pctText(cp) + ')<br>' +
+      'OB: ' + fmt(x.ob_actual) + ' / ' + fmt(x.ob_target) + ' m³ (' + pctText(op) + ')</p>' +
+      (x.shortfall_reason ? '<p>Reason: ' + esc(x.shortfall_reason) + ' (' + fmt(x.delay_hours, 2) + ' h delay)</p>' : '') +
+      '<p><label>Status</label><select data-id="' + esc(x.id) + '" class="st">' +
+      ["Open","In progress","Resolved"].map((s) => '<option' + (s === x.status ? ' selected' : '') + '>' + s + '</option>').join("") +
+      '</select></p></div>';
+  }).join("");
+  box.querySelectorAll(".st").forEach((sel) => sel.addEventListener("change", async () => {
+    const u = await db.from("production_log").update({status: sel.value}).eq("id", sel.dataset.id);
+    if (u.error) showMsg("msg", "err", "Could not change status. Error: " + errText(u.error));
+    else showMsg("msg", "ok", "Status updated to " + sel.value + ".");
+  }));
+}
+loadRecent();
+</script>
 </body>
 </html>

@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Dashboard - Bhubaneswari OCP Production</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="top"><div class="in">
+  <h1>Daily Coal &amp; OB Production</h1>
+  <small>Bhubaneswari OCP, Mahanadi Coalfields Limited (sample data only)</small>
+  <nav class="menu"><a href="index.html">Shift Entry</a><a class="on" href="dashboard.html">Dashboard</a></nav>
+</div></header>
+<main>
+  <div id="msg" class="msg" style="display:none"></div>
+
+  <div class="card">
+    <h2>Period</h2>
+    <div class="grid">
+      <div><label for="period">Show</label>
+        <select id="period">
+          <option value="month">This month</option>
+          <option value="last">Last month</option>
+          <option value="fy">This financial year (from 1 April)</option>
+          <option value="custom">Custom dates</option>
+        </select></div>
+      <div id="custom" style="display:none">
+        <div class="grid"><div><label for="from">From</label><input type="date" id="from"></div>
+        <div><label for="to">To</label><input type="date" id="to"></div></div>
+      </div>
+      <div class="full"><button id="go" class="alt">Refresh</button></div>
+    </div>
+    <p class="hint" id="range"></p>
+  </div>
+
+  <div id="kpis" class="kpis"></div>
+
+  <div class="two" style="margin-top:16px">
+    <div class="card"><h2>Coal: daily Actual vs Target (T)</h2><div class="chart"><canvas id="ch1"></canvas></div></div>
+    <div class="card"><h2>Coal: cumulative Target vs Actual (T)</h2><div class="chart"><canvas id="ch2"></canvas></div></div>
+    <div class="card"><h2>OB: daily Actual vs Target (m³)</h2><div class="chart"><canvas id="ch3"></canvas></div></div>
+    <div class="card"><h2>OB: cumulative Target vs Actual (m³)</h2><div class="chart"><canvas id="ch4"></canvas></div></div>
+    <div class="card"><h2>Shift-wise achievement %</h2><div class="chart"><canvas id="ch5"></canvas></div></div>
+    <div class="card"><h2>Delay hours by shortfall reason</h2><div class="chart"><canvas id="ch6"></canvas></div></div>
+  </div>
+
+  <div class="card"><h2>Coal: daily total (A + B + C) and cumulative</h2><div class="tw" id="tcoal"></div></div>
+  <div class="card"><h2>OB: daily total (A + B + C) and cumulative</h2><div class="tw" id="tob"></div></div>
+  <div class="card"><h2>Shortfall reasons summary</h2><div class="tw" id="treason"></div></div>
+  <div class="card"><h2>Shortfall log (remarks and corrective action)</h2><div id="log"></div></div>
+</main>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="config.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+<script src="app.js"></script>
+<script>
+const db = makeClient();
+const $ = (id) => document.getElementById(id);
+const charts = {};
+const C_ACT = "#c2410c", C_TGT = "#64748b";
+
+function range() {
+  const t = new Date(), y = t.getFullYear(), m = t.getMonth();
+  const p = $("period").value;
+  if (p === "month") return [isoDate(new Date(y, m, 1)), isoDate(new Date(y, m + 1, 0))];
+  if (p === "last") return [isoDate(new Date(y, m - 1, 1)), isoDate(new Date(y, m, 0))];
+  if (p === "fy") { const s = m >= 3 ? y : y - 1; return [s + "-04-01", (s + 1) + "-03-31"]; }
+  return [$("from").value, $("to").value];
+}
+$("period").addEventListener("change", () => {
+  $("custom").style.display = $("period").value === "custom" ? "block" : "none";
+  if ($("period").value !== "custom") load();
+});
+$("go").addEventListener("click", load);
+
+function draw(id, cfg) {
+  if (charts[id]) charts[id].destroy();
+  charts[id] = new Chart($(id), cfg);
+}
+const baseOpts = (extra) => Object.assign({responsive: true, maintainAspectRatio: false,
+  plugins: {legend: {position: "bottom"}}, scales: {y: {beginAtZero: true}}}, extra || {});
+
+function shade(x) { return x == null ? "" : (x >= 100 ? "pos" : "neg"); }
+
+function dailyTable(days, dates, a, t, name, unit) {
+  let cumA = 0, cumT = 0, totA = 0, totT = 0;
+  const body = dates.map((d) => {
+    const g = days[d];
+    const act = g.A[a] + g.B[a] + g.C[a], tgt = g.A[t] + g.B[t] + g.C[t];
+    cumA += act; cumT += tgt; totA += act; totT += tgt;
+    const p = pct(act, tgt), cp = pct(cumA, cumT);
+    const sf = tgt - act;
+    return '<tr><td>' + esc(d) + '</td><td>' + fmt(g.A[a]) + '</td><td>' + fmt(g.B[a]) + '</td><td>' + fmt(g.C[a]) +
+      '</td><td><b>' + fmt(act) + '</b></td><td>' + fmt(tgt) + '</td><td class="' + (sf > 0 ? "neg" : "pos") + '">' + fmt(sf) +
+      '</td><td class="' + shade(p) + '">' + pctText(p) + '</td><td>' + fmt(cumT) + '</td><td>' + fmt(cumA) +
+      '</td><td class="' + shade(cp) + '">' + pctText(cp) + '</td></tr>';
+  }).join("");
+  const p = pct(totA, totT);
+  return '<table><thead><tr><th>Date</th><th>Shift A</th><th>Shift B</th><th>Shift C</th><th>Daily Actual ' + unit +
+    '</th><th>Daily Target</th><th>Shortfall</th><th>Ach %</th><th>Cum Target</th><th>Cum Actual</th><th>Cum Ach %</th></tr></thead><tbody>' +
+    body + '<tr class="tot"><td>Total</td><td colspan="3"></td><td>' + fmt(totA) + '</td><td>' + fmt(totT) + '</td><td>' +
+    fmt(totT - totA) + '</td><td>' + pctText(p) + '</td><td colspan="3"></td></tr></tbody></table>' +
+    '<p class="hint">Shortfall = Target - Actual (negative means production above target). Only days with entries are listed.</p>';
+}
+
+async function load() {
+  if (!db) return showMsg("msg", "err", NOT_READY);
+  const [from, to] = range();
+  if (!from || !to || from > to) return showMsg("msg", "info", "Please pick a valid From and To date.");
+  $("msg").style.display = "none";
+  $("range").textContent = "Showing " + from + " to " + to;
+  if (!window.Chart) return showMsg("msg", "err", "The chart library did not load. Please check the internet connection and refresh.");
+  let rows;
+  try {
+    const r = await db.from("production_log").select("*").gte("log_date", from).lte("log_date", to)
+      .order("log_date", {ascending: true}).order("shift", {ascending: true}).limit(5000);
+    if (r.error) throw r.error;
+    rows = r.data;
+  } catch (e) {
+    return showMsg("msg", "err", "Sorry, the data could not be loaded. Please send this error text to the team: " + errText(e));
+  }
+  if (!rows.length) {
+    $("kpis").innerHTML = ""; ["tcoal","tob","treason","log"].forEach((i) => { $(i).textContent = "No entries in this period."; });
+    Object.keys(charts).forEach((k) => { charts[k].destroy(); delete charts[k]; });
+    return;
+  }
+  const blank = () => ({coal_target: 0, coal_actual: 0, ob_target: 0, ob_actual: 0});
+  const days = {}, shifts = {A: blank(), B: blank(), C: blank()}, tot = blank();
+  rows.forEach((x) => {
+    days[x.log_date] = days[x.log_date] || {A: blank(), B: blank(), C: blank()};
+    ["coal_target","coal_actual","ob_target","ob_actual"].forEach((k) => {
+      const v = num(x[k]);
+      days[x.log_date][x.shift][k] += v; shifts[x.shift][k] += v; tot[k] += v;
+    });
+  });
+  const dates = Object.keys(days).sort();
+  const dsum = (d, k) => days[d].A[k] + days[d].B[k] + days[d].C[k];
+
+  // KPI tiles
+  const tile = (label, val, sub, cls) => '<div class="kpi"><span>' + label + '</span><b class="' + (cls || "") + '">' + val + '</b><small>' + (sub || "") + '</small></div>';
+  const cp = pct(tot.coal_actual, tot.coal_target), op = pct(tot.ob_actual, tot.ob_target);
+  const bar = (p) => '<div class="bar"><i style="width:' + Math.min(100, p || 0) + '%"></i></div>';
+  $("kpis").innerHTML =
+    tile("Coal Target (T)", fmt(tot.coal_target)) + tile("Coal Actual (T)", fmt(tot.coal_actual)) +
+    tile("Coal Shortfall (T)", fmt(tot.coal_target - tot.coal_actual), "Target - Actual", tot.coal_target > tot.coal_actual ? "neg" : "pos") +
+    tile("Coal Achievement", pctText(cp), bar(cp), shade(cp)) +
+    tile("OB Target (m³)", fmt(tot.ob_target)) + tile("OB Actual (m³)", fmt(tot.ob_actual)) +
+    tile("OB Shortfall (m³)", fmt(tot.ob_target - tot.ob_actual), "Target - Actual", tot.ob_target > tot.ob_actual ? "neg" : "pos") +
+    tile("OB Achievement", pctText(op), bar(op), shade(op));
+
+  // Charts
+  const cum = (k) => { let s = 0; return dates.map((d) => (s += dsum(d, k))); };
+  const bars = (id, ta, aa) => draw(id, {type: "bar", data: {labels: dates, datasets: [
+    {label: "Target", data: dates.map((d) => dsum(d, ta)), backgroundColor: C_TGT},
+    {label: "Actual", data: dates.map((d) => dsum(d, aa)), backgroundColor: C_ACT}]}, options: baseOpts()});
+  const lines = (id, ta, aa) => draw(id, {type: "line", data: {labels: dates, datasets: [
+    {label: "Cumulative Target", data: cum(ta), borderColor: C_TGT, borderDash: [6, 4], pointRadius: 2, tension: .2},
+    {label: "Cumulative Actual", data: cum(aa), borderColor: C_ACT, backgroundColor: C_ACT, pointRadius: 2, tension: .2}]}, options: baseOpts()});
+  bars("ch1", "coal_target", "coal_actual"); lines("ch2", "coal_target", "coal_actual");
+  bars("ch3", "ob_target", "ob_actual"); lines("ch4", "ob_target", "ob_actual");
+  draw("ch5", {type: "bar", data: {labels: ["Shift A", "Shift B", "Shift C"], datasets: [
+    {label: "Coal %", data: ["A","B","C"].map((s) => pct(shifts[s].coal_actual, shifts[s].coal_target)), backgroundColor: C_ACT},
+    {label: "OB %", data: ["A","B","C"].map((s) => pct(shifts[s].ob_actual, shifts[s].ob_target)), backgroundColor: C_TGT}]},
+    options: baseOpts()});
+
+  // Reasons
+  const reasons = {};
+  rows.forEach((x) => {
+    const cs = num(x.coal_target) - num(x.coal_actual), os = num(x.ob_target) - num(x.ob_actual);
+    if (!x.shortfall_reason && num(x.delay_hours) === 0 && cs <= 0 && os <= 0) return;
+    const k = x.shortfall_reason || "(no reason given)";
+    const r = reasons[k] = reasons[k] || {n: 0, h: 0, c: 0, o: 0};
+    r.n++; r.h += num(x.delay_hours); r.c += Math.max(cs, 0); r.o += Math.max(os, 0);
+  });
+  const rk = Object.keys(reasons).sort((a, b) => reasons[b].h - reasons[a].h);
+  draw("ch6", {type: "bar", data: {labels: rk, datasets: [{label: "Delay hours", data: rk.map((k) => reasons[k].h), backgroundColor: C_ACT}]},
+    options: baseOpts({indexAxis: "y", plugins: {legend: {display: false}}, scales: {x: {beginAtZero: true}}})});
+
+  // Tables
+  $("tcoal").innerHTML = dailyTable(days, dates, "coal_actual", "coal_target", "Coal", "(T)");
+  $("tob").innerHTML = dailyTable(days, dates, "ob_actual", "ob_target", "OB", "(m³)");
+  $("treason").innerHTML = rk.length ? '<table><thead><tr><th>Reason</th><th>Shifts</th><th>Delay hours</th><th>Coal shortfall (T)</th><th>OB shortfall (m³)</th></tr></thead><tbody>' +
+    rk.map((k) => '<tr><td class="l">' + esc(k) + '</td><td>' + reasons[k].n + '</td><td>' + fmt(reasons[k].h, 2) + '</td><td>' + fmt(reasons[k].c) + '</td><td>' + fmt(reasons[k].o) + '</td></tr>').join("") +
+    '</tbody></table>' : "No shortfalls in this period.";
+
+  const shorts = rows.filter((x) => num(x.coal_actual) < num(x.coal_target) || num(x.ob_actual) < num(x.ob_target)).reverse();
+  $("log").innerHTML = shorts.length ? shorts.map((x) => '<div class="rec"><div class="h"><span>' + esc(x.log_date) + ' - Shift ' + esc(x.shift) +
+    '</span><span><span class="tag ' + esc(x.urgency) + '">' + esc(x.urgency) + '</span> <span class="tag">' + esc(x.status) + '</span></span></div>' +
+    '<p>Coal short: ' + fmt(Math.max(num(x.coal_target) - num(x.coal_actual), 0)) + ' T | OB short: ' + fmt(Math.max(num(x.ob_target) - num(x.ob_actual), 0)) + ' m³ | Delay: ' + fmt(x.delay_hours, 2) + ' h</p>' +
+    '<p><b>Reason:</b> ' + esc(x.shortfall_reason || "-") + '</p>' +
+    (x.remarks ? '<p><b>Remarks:</b> ' + esc(x.remarks) + '</p>' : '') +
+    (x.corrective_action ? '<p><b>Corrective action:</b> ' + esc(x.corrective_action) + '</p>' : '') + '</div>').join("") : "No shortfalls in this period.";
+}
+load();
+</script>
+</body>
+</html>

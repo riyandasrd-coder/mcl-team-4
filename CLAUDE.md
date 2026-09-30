@@ -71,13 +71,14 @@
   commit and push.
 
 ## Our tool (filled in during Phase 1)
-- Team:
-- Tool name:
-- Problem:
-- Who records / who decides:
-- Table name and columns:
+- Team: MCL MDP team
+- Tool name: Daily Coal & OB Production Dashboard - Bhubaneswari OCP
+- Problem: Track shift-wise and daily Coal & OB production, compare Actual vs Target, watch cumulative production and record why production fell short.
+- Who records / who decides: Shift in-charge records each shift; the Project Officer / Manager reviews the dashboard.
+- Table name and columns: production_log - id, created_at, log_date, shift (A/B/C), location, coal_target, coal_actual, ob_target, ob_actual, shortfall_reason, delay_hours, remarks, corrective_action, urgency, status. One row per date + shift (unique).
 - Pages: index.html = entry page; dashboard.html = dashboard
 
 ## Progress Log (newest entry at the bottom)
 - Phase 0 (starter): placeholder index.html, config.js without settings and
   this CLAUDE.md. Next: Phase 1 - the table and the entry page.
+- Phase 1 (Claude): built database/01-setup.sql (table production_log), index.html (shift entry form with live calculations, recent entries, status change), dashboard.html (period filter, KPI tiles, 6 charts, daily A+B+C tables with cumulative Target vs Actual, shortfall reasons summary and log), style.css and app.js (shared helpers). Works: code written but NOT tested on the live site. Known problems: config.js still has placeholders; Data Keeper must run 01-setup.sql first. Next: Data Keeper runs SQL, fills config.js, tests entry + dashboard on the live site.
