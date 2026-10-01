@@ -88,3 +88,4 @@
 - Logo: header shows logo.jpg at the top right (hidden if the file is missing). The MCL logo file logo.jpg is in the top folder.
 - Daily total option: index.html has an "Entry type" choice. "Whole day" splits one daily figure equally into shifts A, B and C (3 records, last shift takes rounding). Tested only with fake data.
 - Classy look: style.css restyled (gold accent, refined header, soft cards and shadows, serif summary title, striped tables, pill status badges, smooth hover effects). Only looks changed, no features.
+- Two levels: dashboard.html has a "View level" switch. Project Officer = full detail (as before). Area GM = big picture (performance at a glance, KPIs, shift table, cumulative charts, reasons donut, MTD/YTD, open High/Medium items needing attention). Link: dashboard.html?level=gm. It is only a view switch, NOT a security lock, because the tool has no login (rule 6).
