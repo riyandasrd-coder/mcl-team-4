@@ -53,7 +53,14 @@ function showMsg(id, kind, text) {
   el.textContent = text;
   el.style.display = "block";
 }
-function errText(e) { return e && e.message ? e.message : String(e); }
+function errText(e) {
+  var m = e && e.message ? e.message : String(e);
+  if (/failed to fetch|networkerror|load failed/i.test(m)) {
+    m += " [The page could not reach the database at " + (window.SUPABASE_URL || "(no address set)") +
+      ". Please check: 1) the Project URL in config.js is exactly right, 2) the Supabase project is not paused, 3) your network or ad-blocker is not blocking supabase.co.]";
+  }
+  return m;
+}
 function makeClient() {
   var url = window.SUPABASE_URL || "", key = window.SUPABASE_PUBLISHABLE_KEY || "";
   if (url.indexOf("PASTE") !== -1 || key.indexOf("PASTE") !== -1 || !window.supabase) return null;
