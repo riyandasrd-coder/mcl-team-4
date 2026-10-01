@@ -17,6 +17,15 @@
   <div id="msg" class="msg" style="display:none"></div>
 
   <div class="card noprint">
+    <h2>View level</h2>
+    <div class="seg" role="group" aria-label="Choose view level">
+      <button type="button" id="lvpo" data-level="po">Project Officer</button>
+      <button type="button" id="lvgm" data-level="gm">Area GM</button>
+    </div>
+    <p class="hint" id="lvhint"></p>
+  </div>
+
+  <div class="card noprint">
     <h2>Filters</h2>
     <div class="grid g5">
       <div><label for="period">Period</label>
@@ -30,9 +39,9 @@
         </select></div>
       <div><label for="from">From</label><input type="date" id="from"></div>
       <div><label for="to">To</label><input type="date" id="to"></div>
-      <div><label for="shift">Shift</label>
+      <div class="po-only"><label for="shift">Shift</label>
         <select id="shift"><option value="">All shifts (A + B + C)</option><option>A</option><option>B</option><option>C</option></select></div>
-      <div><label for="metric">Show</label>
+      <div class="po-only"><label for="metric">Show</label>
         <select id="metric"><option value="both">Coal &amp; OB</option><option value="coal">Coal only</option><option value="ob">OB only</option></select></div>
     </div>
     <div class="actions" style="margin-top:12px">
@@ -43,6 +52,7 @@
     <p class="hint">Periods count back from the latest date that has data. Removed records are never counted.</p>
   </div>
 
+  <div class="card gm-only" id="gmbanner"></div>
   <div class="card summary" id="summary">Loading...</div>
 
   <div class="kpis m-coal" id="kcoal"></div>
@@ -56,10 +66,10 @@
   <div class="card"><h2>Shift-wise table</h2><div class="tw" id="tshift"></div></div>
 
   <div class="two">
-    <div class="card m-coal"><h2>Shift-wise Coal: Target vs Actual (T)</h2><div class="chart"><canvas id="ch1"></canvas></div></div>
-    <div class="card m-ob"><h2>Shift-wise OB: Target vs Actual (m³)</h2><div class="chart"><canvas id="ch2"></canvas></div></div>
-    <div class="card m-coal"><h2>Daily Coal: Target vs Actual (T)</h2><div class="chart"><canvas id="ch3"></canvas></div></div>
-    <div class="card m-ob"><h2>Daily OB: Target vs Actual (m³)</h2><div class="chart"><canvas id="ch4"></canvas></div></div>
+    <div class="card po-only m-coal"><h2>Shift-wise Coal: Target vs Actual (T)</h2><div class="chart"><canvas id="ch1"></canvas></div></div>
+    <div class="card po-only m-ob"><h2>Shift-wise OB: Target vs Actual (m³)</h2><div class="chart"><canvas id="ch2"></canvas></div></div>
+    <div class="card po-only m-coal"><h2>Daily Coal: Target vs Actual (T)</h2><div class="chart"><canvas id="ch3"></canvas></div></div>
+    <div class="card po-only m-ob"><h2>Daily OB: Target vs Actual (m³)</h2><div class="chart"><canvas id="ch4"></canvas></div></div>
     <div class="card m-coal"><h2>Cumulative Coal: Target vs Actual (T)</h2><div class="chart"><canvas id="ch5"></canvas></div></div>
     <div class="card m-ob"><h2>Cumulative OB: Target vs Actual (m³)</h2><div class="chart"><canvas id="ch6"></canvas></div></div>
     <div class="card"><h2 id="dtitle">Shortfall reason analysis</h2><div class="chart"><canvas id="ch7"></canvas></div><p class="hint" id="dnote"></p></div>
@@ -68,11 +78,13 @@
 
   <div class="card"><h2>Shortfall analysis (delay and production impact)</h2>
     <div class="tw" id="treason"></div>
-    <h3>Shift-wise shortfall records</h3>
-    <div class="tw" id="tdetail"></div></div>
+    <h3 class="po-only">Shift-wise shortfall records</h3>
+    <div class="tw po-only" id="tdetail"></div></div>
 
-  <div class="card m-coal"><h2>Daily Coal: A + B + C total and cumulative</h2><div class="tw" id="tcoal"></div></div>
-  <div class="card m-ob"><h2>Daily OB: A + B + C total and cumulative</h2><div class="tw" id="tob"></div></div>
+  <div class="card gm-only"><h2>Needs attention (open High and Medium urgency items)</h2><div class="tw" id="gmattn"></div></div>
+
+  <div class="card po-only m-coal"><h2>Daily Coal: A + B + C total and cumulative</h2><div class="tw" id="tcoal"></div></div>
+  <div class="card po-only m-ob"><h2>Daily OB: A + B + C total and cumulative</h2><div class="tw" id="tob"></div></div>
 </main>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
@@ -86,7 +98,8 @@ const db = makeClient();
 const $ = (id) => document.getElementById(id);
 const charts = {};
 const KEYS = ["coal_target", "coal_actual", "ob_target", "ob_actual"];
-let anchor = null, raw = [], rng = ["", ""], last = null;
+let anchor = null, raw = [], rng = ["", ""], last = null, level = "po";
+const PO_CHARTS = ["ch1", "ch2", "ch3", "ch4"];
 
 const blank = () => ({coal_target: 0, coal_actual: 0, ob_target: 0, ob_actual: 0, n: 0});
 const add = (o, x) => { KEYS.forEach((k) => { o[k] += num(x[k]); }); o.n++; };
@@ -137,9 +150,31 @@ $("shift").addEventListener("change", () => raw.length && render());
 $("metric").addEventListener("change", () => raw.length && render());
 document.addEventListener("themechange", () => raw.length && render());
 
+/* ---------- view level: Project Officer or Area GM ---------- */
+function setLevel(l) {
+  level = l === "gm" ? "gm" : "po";
+  document.body.dataset.level = level;
+  try { localStorage.setItem("mcl-level", level); } catch (e) {}
+  $("lvpo").setAttribute("aria-pressed", level === "po");
+  $("lvgm").setAttribute("aria-pressed", level === "gm");
+  $("lvhint").textContent = level === "gm"
+    ? "Area GM view: the big picture. Targets, achievement, month-to-date, year-to-date, main constraints and open issues that need attention."
+    : "Project Officer view: full detail. Shift-wise and daily numbers, delay hours, remarks and corrective action.";
+  if (level === "gm") { $("shift").value = ""; $("metric").value = "both"; }
+  if (raw.length) render();
+}
+$("lvpo").addEventListener("click", () => setLevel("po"));
+$("lvgm").addEventListener("click", () => setLevel("gm"));
+(function () {
+  let l = new URLSearchParams(location.search).get("level");
+  if (!l) { try { l = localStorage.getItem("mcl-level"); } catch (e) {} }
+  setLevel(l || "po");
+})();
+
 /* ---------- drawing helpers ---------- */
 function draw(id, m, cfg) {
   if (charts[id]) { charts[id].destroy(); delete charts[id]; }
+  if (level === "gm" && PO_CHARTS.indexOf(id) !== -1) return;
   if (m && !vis(m)) return;
   charts[id] = new Chart($(id), cfg);
 }
@@ -196,11 +231,11 @@ function render() {
   });
   const dateTxt = f === t ? longDate(t) : longDate(f) + " to " + longDate(t);
   const shiftTxt = shiftSel ? "Shift " + shiftSel + " only" : "All shifts (A + B + C)";
-  $("ph").textContent = dateTxt + " | " + shiftTxt + " | Printed " + new Date().toLocaleString("en-IN");
+  $("ph").textContent = (level === "gm" ? "Area GM summary" : "Project Officer report") + " | " + dateTxt + " | " + shiftTxt + " | Printed " + new Date().toLocaleString("en-IN");
 
   if (!cur.length) {
     $("summary").innerHTML = '<h2>Production Status - ' + esc(dateTxt) + '</h2><p>No entries in this period. Try another period or add shift entries.</p>';
-    ["kcoal", "kob", "tshift", "tmy", "treason", "tdetail", "tcoal", "tob"].forEach((i) => { $(i).innerHTML = ""; });
+    ["kcoal", "kob", "tshift", "tmy", "treason", "tdetail", "tcoal", "tob", "gmbanner", "gmattn"].forEach((i) => { $(i).innerHTML = ""; });
     ["ch1","ch2","ch3","ch4","ch5","ch6","ch7"].forEach((i) => { if (charts[i]) { charts[i].destroy(); delete charts[i]; } });
     last = null;
     return;
@@ -286,6 +321,20 @@ function render() {
   /* daily tables */
   $("tcoal").innerHTML = dailyTable(days, dates, "coal");
   $("tob").innerHTML = dailyTable(days, dates, "ob");
+
+  /* Area GM extras: status banner and items needing attention */
+  const attn = detail.filter((d) => d.x.status !== "Resolved" && (d.x.urgency === "High" || d.x.urgency === "Medium"))
+    .sort((a, b) => (a.x.urgency === b.x.urgency ? (a.x.log_date < b.x.log_date ? 1 : -1) : a.x.urgency === "High" ? -1 : 1));
+  const hi = attn.filter((d) => d.x.urgency === "High").length;
+  const sc = statusOf(cp), so = statusOf(op);
+  $("gmbanner").innerHTML = '<h2>Performance at a glance</h2><div class="glance">' +
+    '<div class="m-coal"><span>Coal</span><b class="' + sc.cls + '">' + pctText(cp) + '</b><small>' + sc.icon + ' ' + sc.label + '</small></div>' +
+    '<div class="m-ob"><span>OB</span><b class="' + so.cls + '">' + pctText(op) + '</b><small>' + so.icon + ' ' + so.label + '</small></div>' +
+    '<div><span>Delay hours</span><b>' + fmt(rk.reduce((s, k) => s + byReason[k].h, 0), 1) + '</b><small>in this period</small></div>' +
+    '<div><span>Open high urgency</span><b class="' + (hi ? "bad" : "good") + '">' + hi + '</b><small>' + attn.length + ' open High or Medium</small></div></div>';
+  $("gmattn").innerHTML = attn.length ? '<table><thead><tr><th>Date</th><th>Shift</th><th class="l">Reason</th><th class="m-coal">Coal impact</th><th class="m-ob">OB impact</th><th class="l">Urgency</th><th class="l">Status</th><th class="l">Corrective action</th></tr></thead><tbody>' +
+    attn.slice(0, 15).map((d) => '<tr><td>' + esc(d.x.log_date) + '</td><td>' + esc(d.x.shift) + '</td><td class="l">' + esc(d.k) + '</td><td class="m-coal">' + fmt(d.cl) + ' T</td><td class="m-ob">' + fmt(d.ol) + ' m³</td><td class="l"><span class="tag ' + esc(d.x.urgency) + '">' + esc(d.x.urgency) + '</span></td><td class="l">' + esc(d.x.status) + '</td><td class="wrap">' + esc(d.x.corrective_action || "-") + '</td></tr>').join("") +
+    '</tbody></table>' + (attn.length > 15 ? '<p class="hint">Showing 15 of ' + attn.length + '.</p>' : "") : "Nothing needs attention. All High and Medium items are resolved.";
 
   /* charts */
   const actual = cssVar("--actual"), target = cssVar("--target"), card = cssVar("--card");
