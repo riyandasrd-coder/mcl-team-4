@@ -87,3 +87,4 @@
 - Settings: config.js filled with the Project URL and publishable key. Data Keeper has run SQL 01, 02 and 03 (138 sample rows confirmed). Next: test all three pages on the live site.
 - Logo: header shows logo.jpg at the top right (hidden if the file is missing). The MCL logo file logo.jpg is in the top folder.
 - Daily total option: index.html has an "Entry type" choice. "Whole day" splits one daily figure equally into shifts A, B and C (3 records, last shift takes rounding). Tested only with fake data.
+- Classy look: style.css restyled (gold accent, refined header, soft cards and shadows, serif summary title, striped tables, pill status badges, smooth hover effects). Only looks changed, no features.
